@@ -1,0 +1,7 @@
+{
+  "build": { "builder": "NIXPACKS" },
+  "deploy": {
+    "startCommand": "npx ts-node --esm bot.ts",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
