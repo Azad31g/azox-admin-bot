@@ -242,7 +242,7 @@ bot.on("message:text", async (ctx) => {
       .update({ [s.editField]: text })
       .eq("id", s.editTaskId);
     ctx.session = {};
-    if (error) return ctx.reply(\`❌ Error: \${error.message}\`);
+    if (error) return ctx.reply("❌ Error: " + error.message);
     return ctx.reply("✅ Announcement updated!");
   }
 
@@ -637,9 +637,9 @@ bot.callbackQuery("msg_confirm", async (ctx) => {
   });
   ctx.session = {};
   if (error) {
-    await ctx.editMessageText(\`❌ Error: \${error.message}\`);
+    await ctx.editMessageText("❌ Error: " + error.message);
   } else {
-    await ctx.editMessageText(\`✅ Announcement sent!\n\n📌 \${s.title}\`);
+    await ctx.editMessageText("✅ Announcement sent!\n\n📌 " + s.title);
   }
   await ctx.answerCallbackQuery();
 });
