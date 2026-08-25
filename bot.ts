@@ -100,8 +100,12 @@ function platformKeyboard(prefix: string) {
 
 // ─── /start & /edit_task ────────────────────────────
 bot.command("start", async (ctx) => {
-  if (!await requireAdmin(ctx)) return;
-  await ctx.reply("👋 AZOX Admin Bot\n\nUse /edit_task to manage tasks.");
+  console.log("[/start] received from:", ctx.from?.id);
+  if (isAdmin(ctx)) {
+    await ctx.reply("👋 AZOX Admin Bot\n\nCommands:\n/edit_task — Manage tasks\n/message — Send announcement\n/edit_message — Edit announcements");
+  } else {
+    await ctx.reply("⛔ Access denied.");
+  }
 });
 
 bot.command("edit_task", async (ctx) => {
@@ -650,7 +654,11 @@ bot.callbackQuery("msg_confirm", async (ctx) => {
 // ═══════════════════════════════════════════════════
 
 bot.command("message", async (ctx) => {
-  if (!await requireAdmin(ctx)) return;
+  console.log("[/message] received from:", ctx.from?.id, "admin:", ADMIN_ID);
+  if (!await requireAdmin(ctx)) {
+    console.log("[/message] access denied");
+    return;
+  }
   ctx.session = { step: "msg_title" };
   await ctx.reply("📢 New Announcement\n\nSend the title:");
 });
