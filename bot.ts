@@ -21,7 +21,8 @@ interface SessionData {
   title?: string;
   url?: string;
   points?: number;
-  taskReward?: number;  // ← NEW
+  taskReward?: number;
+  msgBody?: string;     // ← for announcements
   editTaskId?: string;
   editField?: string;
 }
@@ -224,8 +225,8 @@ bot.on("message:text", async (ctx) => {
 
   // MESSAGE: body
   if (s.step === "msg_body") {
-    s.url  = text; // reuse url field for message body
-    s.step = "msg_confirm";
+    s.msgBody = text;
+    s.step    = "msg_confirm";
     const kb = new InlineKeyboard()
       .text("✅ Send to all users", "msg_confirm")
       .text("❌ Cancel", "cancel");
@@ -627,13 +628,13 @@ bot.callbackQuery("menu_view", async (ctx) => {
 bot.callbackQuery("msg_confirm", async (ctx) => {
   if (!await requireAdmin(ctx)) return;
   const s = ctx.session;
-  if (!s.title || !s.url) {
+  if (!s.title || !s.msgBody) {
     await ctx.editMessageText("❌ Session expired. Use /message again.");
     return ctx.answerCallbackQuery();
   }
   const { error } = await supabase.from("announcements").insert({
     title:   s.title,
-    message: s.url, // message body stored in url field
+    message: s.msgBody,
   });
   ctx.session = {};
   if (error) {
