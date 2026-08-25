@@ -211,6 +211,41 @@ bot.on("message:text", async (ctx) => {
     );
   }
 
+
+  // MESSAGE: title
+  if (s.step === "msg_title") {
+    if (text.length < 2 || text.length > 100) {
+      return ctx.reply("❌ Title must be 2–100 characters:");
+    }
+    s.title = text;
+    s.step  = "msg_body";
+    return ctx.reply("✅ Title saved.\n\nSend the announcement message:");
+  }
+
+  // MESSAGE: body
+  if (s.step === "msg_body") {
+    s.url  = text; // reuse url field for message body
+    s.step = "msg_confirm";
+    const kb = new InlineKeyboard()
+      .text("✅ Send to all users", "msg_confirm")
+      .text("❌ Cancel", "cancel");
+    return ctx.reply(
+      `📢 Preview:\n\n📌 ${s.title}\n\n${text}`,
+      { reply_markup: kb }
+    );
+  }
+
+  // EDIT MESSAGE: new value
+  if (s.step === "editmsg_value" && s.editTaskId && s.editField) {
+    const { error } = await supabase
+      .from("announcements")
+      .update({ [s.editField]: text })
+      .eq("id", s.editTaskId);
+    ctx.session = {};
+    if (error) return ctx.reply(\`❌ Error: \${error.message}\`);
+    return ctx.reply("✅ Announcement updated!");
+  }
+
   // EDIT: new value
   if (s.step === "edit_value" && s.editTaskId && s.editField) {
     let value: string | number = text;
@@ -588,6 +623,133 @@ bot.callbackQuery("menu_view", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
+
+bot.callbackQuery("msg_confirm", async (ctx) => {
+  if (!await requireAdmin(ctx)) return;
+  const s = ctx.session;
+  if (!s.title || !s.url) {
+    await ctx.editMessageText("❌ Session expired. Use /message again.");
+    return ctx.answerCallbackQuery();
+  }
+  const { error } = await supabase.from("announcements").insert({
+    title:   s.title,
+    message: s.url, // message body stored in url field
+  });
+  ctx.session = {};
+  if (error) {
+    await ctx.editMessageText(\`❌ Error: \${error.message}\`);
+  } else {
+    await ctx.editMessageText(\`✅ Announcement sent!\n\n📌 \${s.title}\`);
+  }
+  await ctx.answerCallbackQuery();
+});
+
 // ─── START ──────────────────────────────────────────
 bot.start();
 console.log(`✅ AZOX Admin Bot running (Admin: ${ADMIN_ID})`);
+
+// ═══════════════════════════════════════════════════
+// 📢 /message COMMAND — Announcements
+// ═══════════════════════════════════════════════════
+
+bot.command("message", async (ctx) => {
+  if (!await requireAdmin(ctx)) return;
+  ctx.session = { step: "msg_title" };
+  await ctx.reply("📢 New Announcement\n\nSend the title:");
+});
+
+// In the text handler, add these steps:
+// msg_title → msg_body → msg_confirm
+// Already handled in the main text handler below as an extension.
+
+// Add /edit_message command
+bot.command("edit_message", async (ctx) => {
+  if (!await requireAdmin(ctx)) return;
+  const { data: msgs } = await supabase
+    .from("announcements")
+    .select("id, title, created_at")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (!msgs || msgs.length === 0) {
+    return ctx.reply("📋 No announcements found.");
+  }
+
+  const kb = new InlineKeyboard();
+  msgs.forEach((m: any) => {
+    const date = new Date(m.created_at).toLocaleDateString("en-GB");
+    kb.text(`${date} — ${m.title.slice(0, 30)}`, `editmsg_${m.id}`).row();
+  });
+  kb.text("🗑 Delete a message", "deletemsg_list");
+
+  await ctx.reply("✏️ Edit Announcement — Choose:", { reply_markup: kb });
+});
+
+bot.callbackQuery(/^editmsg_(.+)$/, async (ctx) => {
+  if (!await requireAdmin(ctx)) return;
+  const msgId = ctx.match[1];
+  const { data: msg } = await supabase
+    .from("announcements").select("*").eq("id", msgId).single();
+  if (!msg) return ctx.editMessageText("❌ Not found.");
+
+  ctx.session = { step: "editmsg_field", editTaskId: msgId };
+  const kb = new InlineKeyboard()
+    .text("📝 Edit Title",   `editmsgfield_${msgId}_title`).row()
+    .text("📄 Edit Message", `editmsgfield_${msgId}_message`).row()
+    .text("🗑 Delete",       `deletemsg_${msgId}`).row()
+    .text("❌ Cancel", "cancel");
+
+  await ctx.editMessageText(
+    `📢 "${msg.title}"\n\n${msg.message}\n\nWhat to edit?`,
+    { reply_markup: kb }
+  );
+  await ctx.answerCallbackQuery();
+});
+
+bot.callbackQuery(/^editmsgfield_(.+)_(title|message)$/, async (ctx) => {
+  if (!await requireAdmin(ctx)) return;
+  const [, msgId, field] = ctx.match;
+  ctx.session = { step: "editmsg_value", editTaskId: msgId, editField: field };
+  await ctx.editMessageText(
+    field === "title" ? "📝 Send the new title:" : "📄 Send the new message:"
+  );
+  await ctx.answerCallbackQuery();
+});
+
+bot.callbackQuery("deletemsg_list", async (ctx) => {
+  if (!await requireAdmin(ctx)) return;
+  const { data: msgs } = await supabase
+    .from("announcements")
+    .select("id, title, created_at")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (!msgs || msgs.length === 0) {
+    await ctx.editMessageText("No announcements.");
+    return ctx.answerCallbackQuery();
+  }
+
+  const kb = new InlineKeyboard();
+  msgs.forEach((m: any) => {
+    const date = new Date(m.created_at).toLocaleDateString("en-GB");
+    kb.text(`🗑 ${date} — ${m.title.slice(0, 25)}`, `deletemsg_${m.id}`).row();
+  });
+  kb.text("❌ Cancel", "cancel");
+  await ctx.editMessageText("🗑 Choose announcement to delete:", { reply_markup: kb });
+  await ctx.answerCallbackQuery();
+});
+
+bot.callbackQuery(/^deletemsg_(.+)$/, async (ctx) => {
+  if (!await requireAdmin(ctx)) return;
+  const msgId = ctx.match[1];
+  const { data: msg } = await supabase
+    .from("announcements").select("title").eq("id", msgId).single();
+  const { error } = await supabase.from("announcements").delete().eq("id", msgId);
+  ctx.session = {};
+  if (error) {
+    await ctx.editMessageText(`❌ Error: ${error.message}`);
+  } else {
+    await ctx.editMessageText(`✅ "${msg?.title}" deleted.`);
+  }
+  await ctx.answerCallbackQuery();
+});
