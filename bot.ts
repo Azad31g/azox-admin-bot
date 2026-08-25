@@ -645,10 +645,6 @@ bot.callbackQuery("msg_confirm", async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// ─── START ──────────────────────────────────────────
-bot.start();
-console.log(`✅ AZOX Admin Bot running (Admin: ${ADMIN_ID})`);
-
 // ═══════════════════════════════════════════════════
 // 📢 /message COMMAND — Announcements
 // ═══════════════════════════════════════════════════
@@ -754,3 +750,7 @@ bot.callbackQuery(/^deletemsg_(.+)$/, async (ctx) => {
   }
   await ctx.answerCallbackQuery();
 });
+
+// ─── START ──────────────────────────────────────────
+bot.start();
+console.log(`✅ AZOX Admin Bot running (Admin: ${ADMIN_ID})`);
