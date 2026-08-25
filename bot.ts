@@ -21,6 +21,7 @@ interface SessionData {
   title?: string;
   url?: string;
   points?: number;
+  taskReward?: number;  // ← NEW
   editTaskId?: string;
   editField?: string;
 }
@@ -30,7 +31,6 @@ const bot = new Bot<{ session: SessionData }>(BOT_TOKEN);
 bot.use(session({ initial: (): SessionData => ({}) }));
 
 // ─── ADMIN GUARD ────────────────────────────────────
-// Applied to EVERY handler — no exceptions
 function isAdmin(ctx: any): boolean {
   return ctx.from?.id === ADMIN_ID;
 }
@@ -57,6 +57,12 @@ function isValidUrl(str: string): boolean {
 function isValidPoints(str: string): number | null {
   const n = parseInt(str.trim(), 10);
   if (isNaN(n) || n < 0 || n > 100000) return null;
+  return n;
+}
+
+function isValidTaskReward(str: string): number | null {
+  const n = parseInt(str.trim(), 10);
+  if (isNaN(n) || n < 0 || n > 100) return null;
   return n;
 }
 
@@ -176,16 +182,31 @@ bot.on("message:text", async (ctx) => {
       return ctx.reply("❌ Invalid. Enter a number between 1 and 100000:");
     }
     s.points = pts;
-    s.step = "add_confirm";
+    s.step   = "add_tasks";
+    return ctx.reply(
+      `✅ Points: +${pts}\n\nHow many Tasks to reward?\n(0 = no task reward, 1 = +1 Task, 2 = +2 Tasks...)\n\nEnter a number between 0 and 100:`
+    );
+  }
+
+  // ADD: task reward ← NEW STEP
+  if (s.step === "add_tasks") {
+    const reward = isValidTaskReward(text);
+    if (reward === null) {
+      return ctx.reply("❌ Invalid. Enter a number between 0 and 100:");
+    }
+    s.taskReward = reward;
+    s.step       = "add_confirm";
     const kb = new InlineKeyboard()
       .text("✅ Confirm & Add", "add_confirm")
       .text("❌ Cancel", "cancel");
+    const taskLine = reward > 0 ? `\nTask Reward: +${reward} Task(s)` : "\nTask Reward: None";
     return ctx.reply(
       `📋 New Task:\n\n` +
       `Platform: ${PLATFORM_EMOJI[s.platform!]} ${s.platform}\n` +
       `Title: ${s.title}\n` +
       `URL: ${s.url}\n` +
-      `Points: +${s.points}`,
+      `Points: +${s.points}` +
+      taskLine,
       { reply_markup: kb }
     );
   }
@@ -198,6 +219,11 @@ bot.on("message:text", async (ctx) => {
       const pts = isValidPoints(text);
       if (pts === null) return ctx.reply("❌ Invalid. Enter a number between 1 and 100000:");
       value = pts;
+    }
+    if (s.editField === "task_reward") {
+      const reward = isValidTaskReward(text);
+      if (reward === null) return ctx.reply("❌ Invalid. Enter a number between 0 and 100:");
+      value = reward;
     }
     if (s.editField === "url" && !isValidUrl(text)) {
       return ctx.reply("❌ Invalid URL. Must start with https://\nTry again:");
@@ -250,22 +276,25 @@ bot.callbackQuery("add_confirm", async (ctx) => {
     .limit(1);
 
   const nextOrder = (last?.[0]?.sort_order ?? 0) + 1;
+  const taskReward = s.taskReward ?? 0;
 
   const { error } = await supabase.from("tasks").insert({
-    platform:   s.platform,
-    title:      s.title,
-    url:        s.url,
-    points:     s.points,
-    status:     "active",
-    sort_order: nextOrder,
+    platform:    s.platform,
+    title:       s.title,
+    url:         s.url,
+    points:      s.points,
+    task_reward: taskReward,
+    status:      "active",
+    sort_order:  nextOrder,
   });
 
   ctx.session = {};
   if (error) {
     await ctx.editMessageText(`❌ Error saving task: ${error.message}`);
   } else {
+    const taskLine = taskReward > 0 ? ` & +${taskReward} Task(s)` : "";
     await ctx.editMessageText(
-      `✅ Task added!\n\n${PLATFORM_EMOJI[s.platform!]} ${s.title}\n+${s.points} pts`
+      `✅ Task added!\n\n${PLATFORM_EMOJI[s.platform!]} ${s.title}\n+${s.points} pts${taskLine}`
     );
   }
   await ctx.answerCallbackQuery();
@@ -289,7 +318,7 @@ PLATFORMS.forEach((p) => {
     if (!await requireAdmin(ctx)) return;
     const { data: tasks } = await supabase
       .from("tasks")
-      .select("id, title, points, status")
+      .select("id, title, points, task_reward, status")
       .eq("platform", p)
       .order("sort_order");
 
@@ -302,7 +331,8 @@ PLATFORMS.forEach((p) => {
     const kb = new InlineKeyboard();
     tasks.forEach((t: any) => {
       const icon = t.status === "active" ? "🟢" : "🔴";
-      kb.text(`${icon} ${t.title} (+${t.points})`, `editsel_${t.id}`).row();
+      const taskInfo = t.task_reward > 0 ? ` +${t.task_reward}T` : "";
+      kb.text(`${icon} ${t.title} (+${t.points}${taskInfo})`, `editsel_${t.id}`).row();
     });
     kb.text("❌ Cancel", "cancel");
 
@@ -327,32 +357,36 @@ bot.callbackQuery(/^editsel_(.+)$/, async (ctx) => {
 
   ctx.session = { step: "edit_field", editTaskId: taskId };
   const kb = new InlineKeyboard()
-    .text("📝 Title",  `editfield_${taskId}_title`).row()
-    .text("🔗 URL",    `editfield_${taskId}_url`).row()
-    .text("🎯 Points", `editfield_${taskId}_points`).row()
+    .text("📝 Title",       `editfield_${taskId}_title`).row()
+    .text("🔗 URL",         `editfield_${taskId}_url`).row()
+    .text("🎯 Points",      `editfield_${taskId}_points`).row()
+    .text("⚡ Task Reward", `editfield_${taskId}_task_reward`).row()
     .text(
       task.status === "active" ? "🔴 Disable" : "🟢 Enable",
       `edittoggle_${taskId}`
     ).row()
     .text("❌ Cancel", "cancel");
 
+  const taskLine = task.task_reward > 0 ? `\nTask Reward: +${task.task_reward} Task(s)` : "\nTask Reward: None";
   await ctx.editMessageText(
     `✏️ Editing: ${task.title}\n` +
-    `Points: +${task.points}\n` +
+    `Points: +${task.points}` +
+    taskLine + `\n` +
     `Status: ${task.status === "active" ? "🟢 Active" : "🔴 Disabled"}`,
     { reply_markup: kb }
   );
   await ctx.answerCallbackQuery();
 });
 
-bot.callbackQuery(/^editfield_(.+)_(title|url|points)$/, async (ctx) => {
+bot.callbackQuery(/^editfield_(.+)_(title|url|points|task_reward)$/, async (ctx) => {
   if (!await requireAdmin(ctx)) return;
   const [, taskId, field] = ctx.match;
   ctx.session = { step: "edit_value", editTaskId: taskId, editField: field };
   const labels: Record<string, string> = {
-    title:  "📝 Send the new title (2–80 chars):",
-    url:    "🔗 Send the new URL (https://...):",
-    points: "🎯 Send the new points (1–100000):",
+    title:       "📝 Send the new title (2–80 chars):",
+    url:         "🔗 Send the new URL (https://...):",
+    points:      "🎯 Send the new points (1–100000):",
+    task_reward: "⚡ Send the new task reward (0–100):\n(0 = no task reward)",
   };
   await ctx.editMessageText(labels[field]!);
   await ctx.answerCallbackQuery();
@@ -379,7 +413,7 @@ bot.callbackQuery(/^edittoggle_(.+)$/, async (ctx) => {
 });
 
 // ═══════════════════════════════════════════════════
-// 🚫 DISABLE TASK (safe — keeps data)
+// 🚫 DISABLE TASK
 // ═══════════════════════════════════════════════════
 
 bot.callbackQuery("menu_disable", async (ctx) => {
@@ -396,7 +430,7 @@ PLATFORMS.forEach((p) => {
     if (!await requireAdmin(ctx)) return;
     const { data: tasks } = await supabase
       .from("tasks")
-      .select("id, title, points, status")
+      .select("id, title, points")
       .eq("platform", p)
       .eq("status", "active")
       .order("sort_order");
@@ -413,7 +447,7 @@ PLATFORMS.forEach((p) => {
     kb.text("❌ Cancel", "cancel");
 
     await ctx.editMessageText(
-      `🚫 Disable — ${PLATFORM_EMOJI[p]} ${p}\nChoose task to disable:`,
+      `🚫 Disable — ${PLATFORM_EMOJI[p]} ${p}\nChoose task:`,
       { reply_markup: kb }
     );
     await ctx.answerCallbackQuery();
@@ -428,19 +462,21 @@ bot.callbackQuery(/^disconfirm_(.+)$/, async (ctx) => {
 
   await supabase.from("tasks").update({ status: "disabled" }).eq("id", taskId);
   ctx.session = {};
-  await ctx.editMessageText(`🚫 "${task?.title}" disabled.\nIt is now hidden from the Mini App.\nUse ✏️ Edit Task → Enable to restore it.`);
+  await ctx.editMessageText(
+    `🚫 "${task?.title}" disabled.\nUse ✏️ Edit → Enable to restore.`
+  );
   await ctx.answerCallbackQuery();
 });
 
 // ═══════════════════════════════════════════════════
-// 🗑 DELETE TASK (permanent — with confirmation)
+// 🗑 DELETE TASK
 // ═══════════════════════════════════════════════════
 
 bot.callbackQuery("menu_delete", async (ctx) => {
   if (!await requireAdmin(ctx)) return;
   ctx.session = { step: "delete_platform" };
   await ctx.editMessageText(
-    "🗑 Delete Task (permanent)\n\n⚠️ Consider using 🚫 Disable instead.\n\nChoose platform:",
+    "🗑 Delete Task (permanent)\n\n⚠️ Consider 🚫 Disable instead.\n\nChoose platform:",
     { reply_markup: platformKeyboard("del_plat") }
   );
   await ctx.answerCallbackQuery();
@@ -488,14 +524,11 @@ bot.callbackQuery(/^delsel_(.+)$/, async (ctx) => {
 
   const kb = new InlineKeyboard()
     .text("🗑 YES — Delete permanently", `delconfirm_${taskId}`).row()
-    .text("🚫 Disable instead (safer)", `disconfirm_${taskId}`).row()
+    .text("🚫 Disable instead (safer)",  `disconfirm_${taskId}`).row()
     .text("❌ Cancel", "cancel");
 
   await ctx.editMessageText(
-    `⚠️ DELETE "${task.title}" from ${task.platform}?\n` +
-    `Points: +${task.points}\n\n` +
-    `This CANNOT be undone.\n` +
-    `Consider Disable if you might need it later.`,
+    `⚠️ DELETE "${task.title}"?\nPoints: +${task.points}\n\nThis CANNOT be undone.`,
     { reply_markup: kb }
   );
   await ctx.answerCallbackQuery();
@@ -531,7 +564,7 @@ bot.callbackQuery("menu_view", async (ctx) => {
     .order("sort_order");
 
   if (!tasks || tasks.length === 0) {
-    await ctx.editMessageText("📋 No tasks found.\n\nUse ➕ Add Task to get started.", {
+    await ctx.editMessageText("📋 No tasks found.", {
       reply_markup: new InlineKeyboard().text("🔙 Back", "menu_back"),
     });
     return ctx.answerCallbackQuery();
@@ -539,17 +572,15 @@ bot.callbackQuery("menu_view", async (ctx) => {
 
   let msg = "📋 All Tasks:\n\n";
   let cur = "";
-  let total = 0;
   tasks.forEach((t: any) => {
     if (t.platform !== cur) {
       cur = t.platform;
       msg += `${PLATFORM_EMOJI[t.platform as Platform]} ${t.platform.toUpperCase()}\n`;
     }
     const icon = t.status === "active" ? "🟢" : "🔴";
-    msg += `  ${icon} ${t.title} (+${t.points})\n`;
-    total++;
+    const taskInfo = t.task_reward > 0 ? ` +${t.task_reward}T` : "";
+    msg += `  ${icon} ${t.title} (+${t.points}${taskInfo})\n`;
   });
-  msg += `\nTotal: ${total} tasks`;
 
   await ctx.editMessageText(msg, {
     reply_markup: new InlineKeyboard().text("🔙 Back", "menu_back"),
