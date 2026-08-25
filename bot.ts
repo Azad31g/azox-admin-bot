@@ -176,8 +176,7 @@ bot.on("message:text", async (ctx) => {
       return ctx.reply("❌ Invalid. Enter a number between 1 and 100000:");
     }
     s.points = pts;
-    s.step = "add_tasks";
-     return ctx.reply("How many Tasks to reward? (0 = no task reward, 1 = +1 Task, etc.):");
+    s.step = "add_confirm";
     const kb = new InlineKeyboard()
       .text("✅ Confirm & Add", "add_confirm")
       .text("❌ Cancel", "cancel");
