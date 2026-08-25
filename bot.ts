@@ -63,7 +63,7 @@ function isValidPoints(str: string): number | null {
 
 function isValidTaskReward(str: string): number | null {
   const n = parseInt(str.trim(), 10);
-  if (isNaN(n) || n < 0 || n > 100) return null;
+  if (isNaN(n) || n < 0 || n > 1000) return null;
   return n;
 }
 
@@ -300,7 +300,7 @@ bot.on("message:text", async (ctx) => {
     s.points = pts;
     s.step   = "add_tasks";
     return ctx.reply(
-      `✅ Points: +${pts}\n\nHow many Tasks to reward?\n(0 = no task reward, 1 = +1 Task, 2 = +2 Tasks...)\n\nEnter a number between 0 and 100:`
+      `✅ Points: +${pts}\n\nHow many Tasks to reward?\n(0 = no task reward, 1 = +1 Task, 2 = +2 Tasks...)\n\nEnter a number between 0 and 1000:`
     );
   }
 
@@ -308,7 +308,7 @@ bot.on("message:text", async (ctx) => {
   if (s.step === "add_tasks") {
     const reward = isValidTaskReward(text);
     if (reward === null) {
-      return ctx.reply("❌ Invalid. Enter a number between 0 and 100:");
+      return ctx.reply("❌ Invalid. Enter a number between 0 and 1000:");
     }
     s.taskReward = reward;
     s.step       = "add_confirm";
@@ -373,7 +373,7 @@ bot.on("message:text", async (ctx) => {
     }
     if (s.editField === "task_reward") {
       const reward = isValidTaskReward(text);
-      if (reward === null) return ctx.reply("❌ Invalid. Enter a number between 0 and 100:");
+      if (reward === null) return ctx.reply("❌ Invalid. Enter a number between 0 and 1000:");
       value = reward;
     }
     if (s.editField === "url" && !isValidUrl(text)) {
@@ -537,7 +537,7 @@ bot.callbackQuery(/^editfield_(.+)_(title|url|points|task_reward)$/, async (ctx)
     title:       "📝 Send the new title (2–80 chars):",
     url:         "🔗 Send the new URL (https://...):",
     points:      "🎯 Send the new points (1–100000):",
-    task_reward: "⚡ Send the new task reward (0–100):\n(0 = no task reward)",
+    task_reward: "⚡ Send the new task reward (0–1000):\n(0 = no task reward)",
   };
   await ctx.editMessageText(labels[field]!);
   await ctx.answerCallbackQuery();
